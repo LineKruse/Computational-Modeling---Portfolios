@@ -1,0 +1,637 @@
+---
+title: "Data_cleaning"
+author: "Line Kruse"
+date: "5/2/2018"
+output: html_document
+---
+
+
+
+
+DATA CLEANING
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+setwd("~/Dropbox/2018 - Eye tracking")
+
+SamplesV1 <- read.csv("~/Dropbox/2018 - Eye tracking/SamplesV1.csv")
+FixationsV1 <- read.csv("~/Dropbox/2018 - Eye tracking/FixationsV1.csv")
+SaccadesV1 <- read.csv("~/Dropbox/2018 - Eye tracking/SaccadesV1.csv")
+
+pacman::p_load(readr,groupdata2,ggplot2,tidyverse)
+
+logfile_1_2_f <- read.csv("~/Dropbox/2018 - Eye tracking/PupilsLogs/logfile_1_2_f.csv")
+
+logfile_2_1_f <- read.csv("~/Dropbox/2018 - Eye tracking/PupilsLogs/logfile_2_1_f.csv")
+
+logfile_3_2_f <- read.csv("~/Dropbox/2018 - Eye tracking/PupilsLogs/logfile_3_2_f.csv")
+
+logfile_4_1_f <- read.csv("~/Dropbox/2018 - Eye tracking/PupilsLogs/logfile_4_1_f.csv")
+
+logfile_5_2_m <- read.csv("~/Dropbox/2018 - Eye tracking/PupilsLogs/logfile_5_2_m.csv")
+
+logfile_6_1_m <- read.csv("~/Dropbox/2018 - Eye tracking/PupilsLogs/logfile_6_1_m.csv")
+
+
+#Merge all the log files from experiment 2
+logfiles = rbind(logfile_1_2_f, logfile_2_1_f,logfile_3_2_f, logfile_4_1_f, logfile_5_2_m, logfile_6_1_m)
+
+#Add 1 to trials (so that it starts counting from 1 rather than 0)
+for (x in length(logfiles$X)){
+  logfiles$X=logfiles$X+1}
+
+#Rename columns 
+colnames(logfiles)[1]="Trial"
+colnames(logfiles)[2]="ParticipantID"
+
+#Add columns of condition information to logfiles (Social engagement experiment)
+for (x in length(logfiles$Trials)){
+  list = str_extract(logfiles$video, regex("dir"))
+  }
+
+logfiles$Direction = list
+logfiles[is.na(logfiles)] = "div"
+
+for (x in length(logfiles$Trials)){
+  list_o = str_extract(logfiles$video, regex("\\+o"))
+  }
+
+logfiles$Ostensiveness = list_o
+logfiles[is.na(logfiles)] = "-o"
+
+for (x in length(logfiles$Trials)){
+  list_g = str_extract(logfiles$video, regex("f"))
+  }
+list_g
+logfiles$ActorGender = list_g
+logfiles[is.na(logfiles)] = "m"
+
+#Add a column in V1 df for search type 
+#For samples data 
+SamplesV1$SearchType[SamplesV1$SearchOrder==1 & SamplesV1$Trial<6]="Star"
+SamplesV1$SearchType[SamplesV1$SearchOrder==1 & SamplesV1$Trial>5]="Count"
+
+SamplesV1$SearchType[SamplesV1$SearchOrder==2 & SamplesV1$Trial<6]="Star"
+SamplesV1$SearchType[SamplesV1$SearchOrder==2 & SamplesV1$Trial>5]="Count"
+
+#For saccades
+SaccadesV1$SearchType[SaccadesV1$SearchOrder==1 & SaccadesV1$Trial<6]="Star"
+SaccadesV1$SearchType[SaccadesV1$SearchOrder==1 & SaccadesV1$Trial>5]="Count"
+
+SaccadesV1$SearchType[SaccadesV1$SearchOrder==2 & SaccadesV1$Trial<6]="Star"
+SaccadesV1$SearchType[SaccadesV1$SearchOrder==2 & SaccadesV1$Trial>5]="Count"
+
+#For fixations 
+FixationsV1$SearchType[FixationsV1$SearchOrder==1 & FixationsV1$Trial<6]="Star"
+FixationsV1$SearchType[FixationsV1$SearchOrder==1 & FixationsV1$Trial>5]="Count"
+
+FixationsV1$SearchType[FixationsV1$SearchOrder==2 & FixationsV1$Trial<6]="Star"
+FixationsV1$SearchType[FixationsV1$SearchOrder==2 & FixationsV1$Trial>5]="Count"
+
+#Merge logfiles with each of the datafiles 
+Samples = merge(SamplesV1, logfiles, by.x=c("ParticipantID","Trial"), by.y=c("ParticipantID","Trial"),all = T)
+
+Fixations = merge(FixationsV1, logfiles, by.x=c("ParticipantID","Trial"), by.y=c("ParticipantID","Trial"),all = T)
+
+Saccades = merge(SaccadesV1, logfiles, by.x=c("ParticipantID","Trial"), by.y=c("ParticipantID","Trial"),all = T)
+```
+
+
+
+
+
+
+DATA QUALITY CHECK
+```{r cars}
+#Histogram of distribution of fixation duration
+ggplot(filter(Fixations, Task=="VisualSearch"), aes(Duration))+
+  geom_histogram()+
+  facet_wrap(~SearchType)
+
+ggplot(filter(Saccades,Task=="VisualSearch"), aes(Amplitude))+
+  geom_histogram()+
+  facet_wrap(~SearchType)
+
+
+#Histogram of distribution of pupil size 
+ggplot(Samples, aes(log(PupilSize)))+
+  geom_density(aes(color=ParticipantID))+
+  facet_wrap(Saccade~Task) 
+#Splits it in saccades/fixations and the two task
+#We split it in saccades and fixations, because we are not really sure that pupil size means the same in both these cases (since we are functionally blind during saccades). 
+#Also controls for varieties in the intercept of pupil size across participants - shows that the bimodal distribution (in visual search task), is caused by one participant having a higher pupil size intercept (from the beginning). 
+
+```
+
+
+
+
+CREATING MODELS - Visual Search 
+
+```{r}
+FixationsV2 <- read.csv("~/Dropbox/2018 - Eye tracking/FixationsV2.csv")
+SaccadesV2 <- read.csv("~/Dropbox/2018 - Eye tracking/SaccadesV2.csv")
+
+#The plots show that the data is not normally distributed, rather long-tailed - human movements are always long-tailed (logarithmic scale)
+#Thus, we need to transform the data - logtransformation - we specify it in the lmer() model - family=Gaussian(link=log)
+# - Makes the uncertainty of the predictions more appropriate - you are not underestimating the variance in the tail (the logtransform sort of shrinks the long tail in the distribution)
+
+#DATA ANALYSIS 
+#Visual search model 
+#Saccades
+m_sac = lmer(Amplitude~SearchType*Trial+(1+SeachType*Trial/Participant), Saccades, family=gaussian(link=log))
+m_fix = lmer(Duration~SearchType*Trial+(1+SeachType*Trial/Participant), Fixations, family=gaussian(link=log))
+#SearchORder is a variable that does not change within participant, and we do not expect a systematic difference - however, we expect an interaction - a systematic effect of searchtype being more similar in similar searchorders
+#We expect a systematic effect over time (trial) - people might get tired, bored etc. 
+#also include fixations in the interaction - we expect that within a trial, there are systematic effect of fixations - systematic effects of time in the fixations that occur within a trial. 
+#Searchorder was counterbalanced in the studey - thus, this is accounted for (mostly) and we can exclude it from the model (for it not to get too complex)
+#Fixation is not crucial, so we exclude it
+#INteraction between searchtype and trial is included, because we expect that time might have different effects in the two different tasks 
+
+```
+
+
+
+
+
+
+CROSS VALIDATION - Fixation
+```{r}
+#Crossvalidate: 
+#A model with the interaction 
+#One with only the main effects 
+#One with only search type (exclude trial - to see if trial adds something to model)
+
+library(caret)
+install.packages("Metrics")
+library(Metrics)
+install.packages("merTools")
+library(merTools)
+library(lmerTest)
+library(stats)
+
+FixationsV2$log_Dur = log(FixationsV2$Duration)
+FixationsV2 = subset(FixationsV2[FixationsV2$log_Dur>0.0001,])
+
+VS_data = subset(FixationsV2, Task=="VisualSearch")
+VS_data$ParticipantID = as.character(VS_data$ParticipantID)
+VS_data$ParticipantID = as.factor(VS_data$ParticipantID)
+VS_data$ParticipantID = as.numeric(VS_data$ParticipantID)
+
+#Models - fixations 
+m_fix_0 = lmer(scale(log_Dur)~SearchType+(1+SearchType*Trial|ParticipantID), VS_data)
+
+m_fix_1 = lmer(scale(log_Dur)~SearchType+Trial+(1+SearchType*Trial|ParticipantID), VS_data)
+
+m_fix_2 = lmer(scale(log_Dur)~SearchType*Trial+(1+SearchType*Trial|ParticipantID), VS_data)
+
+m_fix_int = lmer(scale(log_Dur)~1+(1+SearchType*Trial|ParticipantID), VS_data)
+
+#Crossvalidate m_fix_0
+folds = createFolds(unique(VS_data$ParticipantID), k=3)
+
+performance_m0 = c()
+for (i in 1:3){
+  data = VS_data[!VS_data$ParticipantID%in%folds[[i]],]
+  test = VS_data[VS_data$ParticipantID%in%folds[[i]],]
+  model = m_fix_0
+  test_error = predict(model, test, allow.new.levels=T)
+  output = Metrics::rmse(scale(test$log_Dur), test_error)
+  performance_m0 = c(performance_m0, output)
+  }
+performance_m0
+mean(performance_m0) # = 0.95
+
+#Crossvalidate m_fix_1
+folds = createFolds(unique(VS_data$ParticipantID), k=3)
+
+performance_m1 = c()
+for (i in 1:3){
+  data = VS_data[!VS_data$ParticipantID%in%folds[[i]],]
+  test = VS_data[VS_data$ParticipantID%in%folds[[i]],]
+  model = m_fix_1
+  test_error = predict(model, test, allow.new.levels=T)
+  output = Metrics::rmse(scale(test$log_Dur), test_error)
+  performance_m1 = c(performance_m1, output)
+  }
+performance_m1
+mean(performance_m1) # = 0.96
+
+#Crossvalidate m_fix_2
+folds = createFolds(unique(VS_data$ParticipantID), k=3)
+
+performance_m2 = c()
+for (i in 1:3){
+  data = VS_data[!VS_data$ParticipantID%in%folds[[i]],]
+  test = VS_data[VS_data$ParticipantID%in%folds[[i]],]
+  model = m_fix_2
+  test_error = predict(model, test, allow.new.levels=T)
+  output = Metrics::rmse(scale(test$log_Dur), test_error)
+  performance_m2 = c(performance_m2, output)
+  }
+performance_m2
+mean(performance_m2) # = 0.97
+
+#Crossvalidate m_fix_int
+folds = createFolds(unique(VS_data$ParticipantID), k=3)
+
+performance_m_int = c()
+for (i in 1:3){
+  data = VS_data[!VS_data$ParticipantID%in%folds[[i]],]
+  test = VS_data[VS_data$ParticipantID%in%folds[[i]],]
+  model = m_fix_int
+  test_error = predict(model, test, allow.new.levels=T)
+  output = Metrics::rmse(scale(test$log_Dur), test_error)
+  performance_m_int = c(performance_m_int, output)
+  }
+performance_m_int
+mean(performance_m_int) # = 1.00
+
+```
+
+
+
+
+
+CROSS VALIDATION - Saccades
+```{r}
+
+SaccadesV2$log_Amp = log(SaccadesV2$Amplitude)
+
+#Using the VS_data (only with visual search)
+VS_sac = subset(SaccadesV2, Task =="VisualSearch")
+
+VS_sac$ParticipantID = as.character(VS_sac$ParticipantID)
+VS_sac$ParticipantID = as.factor(VS_sac$ParticipantID)
+VS_sac$ParticipantID = as.numeric(VS_sac$ParticipantID)
+
+
+#Models - Saccades  
+m_sac_0 = lmer(scale(log_Amp)~SearchType+(1+SearchType*Trial|ParticipantID), VS_sac)
+
+m_sac_1 = lmer(scale(log_Amp)~SearchType+Trial+(1+SearchType*Trial|ParticipantID), VS_sac)
+
+m_sac_2 = lmer(scale(log_Amp)~SearchType*Trial+(1+SearchType*Trial|ParticipantID), VS_sac)
+
+m_sac_int = lmer(scale(log_Amp)~1+(1+SearchType*Trial|ParticipantID), VS_sac)
+
+
+#Crossvalidate m_sac_0
+folds = createFolds(unique(VS_sac$ParticipantID), k=3)
+
+performance_m0_sac = c()
+for (i in 1:3){
+  data = VS_sac[!VS_sac$ParticipantID%in%folds[[i]],]
+  test = VS_sac[VS_sac$ParticipantID%in%folds[[i]],]
+  model = m_sac_0
+  test_error = predict(model, test, allow.new.levels=T)
+  output = Metrics::rmse(scale(test$log_Amp), test_error)
+  performance_m0_sac = c(performance_m0_sac, output)
+  }
+performance_m0_sac
+mean(performance_m0_sac) # RMSE = 0.94
+
+#Crossvalidate m_sac_1
+folds = createFolds(unique(VS_sac$ParticipantID), k=3)
+
+performance_m1_sac = c()
+for (i in 1:3){
+  data = VS_sac[!VS_sac$ParticipantID%in%folds[[i]],]
+  test = VS_sac[VS_sac$ParticipantID%in%folds[[i]],]
+  model = m_sac_1
+  test_error = predict(model, test, allow.new.levels=T)
+  output = Metrics::rmse(scale(test$log_Amp), test_error)
+  performance_m1_sac = c(performance_m1_sac, output)
+  }
+performance_m1_sac
+mean(performance_m1_sac) #RMSE = 0.92
+
+#Crossvalidate m_sac_2
+folds = createFolds(unique(VS_sac$ParticipantID), k=3)
+
+performance_m2_sac = c()
+for (i in 1:3){
+  data = VS_sac[!VS_sac$ParticipantID%in%folds[[i]],]
+  test = VS_sac[VS_sac$ParticipantID%in%folds[[i]],]
+  model = m_sac_2
+  test_error = predict(model, test, allow.new.levels=T)
+  output = Metrics::rmse(scale(test$log_Amp), test_error)
+  performance_m2_sac = c(performance_m2_sac, output)
+  }
+performance_m2_sac
+mean(performance_m2_sac) #RMSE = 0.94
+
+#Crossvalidate m_sac_int
+folds = createFolds(unique(VS_sac$ParticipantID), k=3)
+
+performance_m_int_sac = c()
+for (i in 1:3){
+  data = VS_sac[!VS_sac$ParticipantID%in%folds[[i]],]
+  test = VS_sac[VS_sac$ParticipantID%in%folds[[i]],]
+  model = m_sac_int
+  test_error = predict(model, test, allow.new.levels=T)
+  output = Metrics::rmse(scale(test$log_Amp), test_error)
+  performance_m_int_sac = c(performance_m_int_sac, output)
+  }
+performance_m_int_sac
+mean(performance_m_int_sac) #RMSE = 0.95
+
+```
+
+
+
+CREATING MODELS - Social engagement (Pupil size )
+```{r}
+#In samples data we have a pupil size for every ms - benefit of higher temporal resolution)
+#In fixation we have a pupil size for every fixation - benefit of simplicity (less data)
+#We use samples data (unless our computer cannot cope)
+SamplesV2 <- read.csv("~/Dropbox/2018 - Eye tracking/SamplesV2.csv")
+
+#We want to only look on pupil size during fixations (as we are not processing during a saccade) - we make a subset 
+
+PS_data = filter(SamplesV2, !is.na(Fixation))
+PS_data = subset(PS_data, Task=="SocialEngagement")
+
+m_ps = lmer(scale(PupilSize)~Directionality*Ostension*scale((TrialTime+TrialTime^2+TrialTime^3))+ActorGender*ParticipantGender*scale((TrialTime+TrialTime^2+TrialTime^3))+Trial+(1+Directionality*Ostension*Trial|ParticipantID), PS_data)
+#We expect different effects depending on the item - the gender of the actors
+#We expect pupil size to change within trials (TimeTrial) - e.g., because of luminosity
+#The effects of ostention might be different in different participants (random effect)
+#Same with direction 
+#Some people have bigger pupils from start - include ParticipantID
+#Interaction between participant and actor gender 
+#Might be bigger effect of ostention if the gaze is directed at you, rather than a third person - thus, interaction between these two. 
+#Also expect that direction*ostention is influenced by the interaction of actorgender*participantGender - however, a fourway interaction is too much for the model to do (with only 6 participants)
+#Looking at a plot of the pupil size data (geom_smooth), the data looks like its a 3rd grade polynomial - we account for this in the model (TrialTime+TrialTime^2+TrialTime^3). - We test if we shoul incdlude both TT^2 and TT^3 - or if it is better just include the 2nd grade. 
+#We need to see how the affect of time changes by condition (in this case gender) - include the 3rd grade polynomial in an interaction with genders as well 
+
+#This model is very complicated. Thus, we start with the one effect that we are mostly interested in - add on, and test them against each other 
+
+# We need to be aware of not overfitting the data with a too complicated model
+
+m_ps_0 = lmer(PupilSize~Directionality*Ostension+(1+Directionality+Ostension|ParticipantID), PS_data)
+
+m_ps_1 = lmer(PupilSize~Directionality*Ostension+Trial+(1+Directionality+Ostension|ParticipantID), PS_data)
+summary(m_ps_1)
+
+m_ps_2 = lmer(PupilSize~Directionality*Ostension+Trial+scale(TrialTime)+(1+Directionality+Ostension|ParticipantID), PS_data)
+summary(m_ps_2)
+
+m_ps_3 = lmer(PupilSize~Directionality+Ostension+(1+Directionality+Ostension|ParticipantID), PS_data)
+
+m_ps_4 = lmer(PupilSize~1+(1+Directionality+Ostension|ParticipantID), PS_data)
+
+m_ps_5 = lmer(PupilSize~Directionality+Ostension+Trial+(1+Directionality+Ostension|ParticipantID), PS_data)
+
+
+#Changing participantID type
+PS_data$ParticipantID = as.character(PS_data$ParticipantID)
+PS_data$ParticipantID = as.factor(PS_data$ParticipantID)
+PS_data$ParticipantID = as.numeric(PS_data$ParticipantID)
+
+#Cross-validation m_ps_0
+folds = createFolds(unique(PS_data$ParticipantID), k=3)
+
+performance_m_ps_0 = c()
+for (i in 1:3){
+  data = PS_data[!PS_data$ParticipantID%in%folds[[i]],]
+  test = PS_data[PS_data$ParticipantID%in%folds[[i]],]
+  model = m_ps_0
+  test_error = predict(model, test, allow.new.levels=T)
+  output = Metrics::rmse(test$PupilSize, test_error)
+  performance_m_ps_0 = c(performance_m_ps_0, output)
+  }
+performance_m_ps_0
+mean(performance_m_ps_0)
+#RMSE = 579.70
+
+#Cross-validation m_ps_1
+folds = createFolds(unique(PS_data$ParticipantID), k=3)
+
+performance_m_ps_1 = c()
+for (i in 1:3){
+  data = PS_data[!PS_data$ParticipantID%in%folds[[i]],]
+  test = PS_data[PS_data$ParticipantID%in%folds[[i]],]
+  model = m_ps_1
+  test_error = predict(model, test, allow.new.levels=T)
+  output = Metrics::rmse(test$PupilSize, test_error)
+  performance_m_ps_1 = c(performance_m_ps_1, output)
+  }
+performance_m_ps_1
+mean(performance_m_ps_1)
+#RMSE = 179.20
+
+#Cross-validation m_ps_2
+folds = createFolds(unique(PS_data$ParticipantID), k=3)
+
+performance_m_ps_2 = c()
+for (i in 1:3){
+  data = PS_data[!PS_data$ParticipantID%in%folds[[i]],]
+  test = PS_data[PS_data$ParticipantID%in%folds[[i]],]
+  model = m_ps_2
+  test_error = predict(model, test, allow.new.levels=T)
+  output = Metrics::rmse(test$PupilSize, test_error)
+  performance_m_ps_2 = c(performance_m_ps_2, output)
+  }
+performance_m_ps_2
+mean(performance_m_ps_2)
+#RMSE = 
+
+#Cross-validation m_ps_3
+folds = createFolds(unique(PS_data$ParticipantID), k=3)
+
+performance_m_ps_3 = c()
+for (i in 1:3){
+  data = PS_data[!PS_data$ParticipantID%in%folds[[i]],]
+  test = PS_data[PS_data$ParticipantID%in%folds[[i]],]
+  model = m_ps_3
+  test_error = predict(model, test, allow.new.levels=T)
+  output = Metrics::rmse(test$PupilSize, test_error)
+  performance_m_ps_3 = c(performance_m_ps_3, output)
+  }
+performance_m_ps_3
+mean(performance_m_ps_3)
+#RMSE = 186.29
+
+#Cross-validation m_ps_4
+folds = createFolds(unique(PS_data$ParticipantID), k=3)
+
+performance_m_ps_4 = c()
+for (i in 1:3){
+  data = PS_data[!PS_data$ParticipantID%in%folds[[i]],]
+  test = PS_data[PS_data$ParticipantID%in%folds[[i]],]
+  model = m_ps_4
+  test_error = predict(model, test, allow.new.levels=T)
+  output = Metrics::rmse(test$PupilSize, test_error)
+  performance_m_ps_4 = c(performance_m_ps_4, output)
+  }
+performance_m_ps_4
+mean(performance_m_ps_4)
+#RMSE = 186.96
+
+#Cross-validation m_ps_5
+folds = createFolds(unique(PS_data$ParticipantID), k=3)
+
+performance_m_ps_5 = c()
+for (i in 1:3){
+  data = PS_data[!PS_data$ParticipantID%in%folds[[i]],]
+  test = PS_data[PS_data$ParticipantID%in%folds[[i]],]
+  model = m_ps_5
+  test_error = predict(model, test, allow.new.levels=T)
+  output = Metrics::rmse(test$PupilSize, test_error)
+  performance_m_ps_5 = c(performance_m_ps_5, output)
+  }
+performance_m_ps_5
+mean(performance_m_ps_5)
+#RMSE = 186.96
+
+
+```
+
+
+RUN SELECTED WINNING MODELS ON FULL DATASET 
+```{r}
+#Fixation
+m_fix_0 = lmer(scale(log_Dur)~SearchType+(1+SearchType*Trial|ParticipantID), VS_data)
+summary(m_fix_0)
+
+#Saccades
+m_sac_0 = lmer(scale(log_Amp)~SearchType+(1+SearchType*Trial|ParticipantID), VS_sac)
+summary(m_sac_0)
+
+#Pupil size
+m_ps_1 = lmer(PupilSize~Directionality*Ostension+Trial+(1+Directionality+Ostension|ParticipantID), PS_data)
+summary(m_ps_1)
+
+
+```
+
+
+
+VISUALIZATIONS
+
+```{r}
+#For fixation duration --> heatmaps 
+#For saccades amplitude (and fixations) --> scanpaths 
+#For pupil size --> Growth plot 
+
+#HEAT MAPS 
+# x-axis = position x (of eye gaze - from samplesV2 data)
+# y-axis = position y (of eye gaze - from samplesV2 data)
+# colors = divide the graph into bins - check amount of data points in each bin - the density of datapoints will determine the colour of the bin 
+#The colors of the heatmap can represent either amount of datapoints (fixations) or duration of fixations. 
+#Proportional density (amount of datapoints) gives a better (nicer) heatmap, than one based on raw count
+
+jet.colors = colorRampPalette(c("#00007F", "blue", "#007FFF", "cyan", "#7FFF7F", "yellow", "#FF7F00", "red", "#7F0000"))
+
+install.packages("jpeg")
+library(jpeg)
+library(grid)
+
+#Participant 6_3_m2 - Search task - finding the star
+img1 = readJPEG("/Users/lineelgaard/Dropbox/2018 - Eye tracking/EyeTrackingScripts/foraging/ng090ws.jpg")
+g1 = rasterGrob(img1, interpolate=TRUE)
+
+plot1 = ggplot(subset(FixationsV2, Task=="VisualSearch" & ParticipantID=="6_3_m2" & SearchType=="Search" & Trial==6), aes(x=PositionX, y=PositionY))+
+  xlim(0,1920)+
+  ylim(0,1080)+
+  annotation_custom(g1, xmin = -Inf, xmax = Inf, ymin = -0, ymax = 1080)+
+  stat_density2d(geom="raster", aes(fill=..density.., alpha=sqrt(sqrt(..density..))), contour = FALSE, n=1000)+
+  scale_alpha(range=c(0.1, 0.6))+
+  scale_fill_gradientn(colours = jet.colors(10), trans="sqrt")
+
+#Participant 6_3_m2 - Counting task
+img2 = readJPEG("/Users/lineelgaard/Dropbox/2018 - Eye tracking/EyeTrackingScripts/foraging/ng038ws.jpg")
+g2 = rasterGrob(img2, interpolate=TRUE)
+
+plot2 = ggplot(subset(FixationsV2, Task=="VisualSearch" & ParticipantID=="6_3_m2" & SearchType=="Count" & Trial == 2), aes(x=PositionX, y=PositionY))+
+  xlim(0,1920)+
+  ylim(0,1080)+
+  annotation_custom(g2, xmin = -Inf, xmax = Inf, ymin = -0, ymax = 1080)+
+  stat_density2d(geom="raster", aes(fill=..density.., alpha=sqrt(sqrt(..density..))), contour = FALSE, n=1000)+
+  scale_alpha(range=c(0.1, 0.6))+
+  scale_fill_gradientn(colours = jet.colors(10), trans="sqrt")
+
+#Participant 5_1_m2 - Search task - finding the star 
+img3 = readJPEG("/Users/lineelgaard/Dropbox/2018 - Eye tracking/EyeTrackingScripts/foraging/ng090ws.jpg")
+g3 = rasterGrob(img3, interpolate=TRUE)
+
+plot3 = ggplot(subset(FixationsV2, Task=="VisualSearch" & ParticipantID=="5_1_m2" & SearchType=="Search", Trial==6), aes(x=PositionX, y=PositionY))+
+  xlim(0,1920)+
+  ylim(0,1080)+
+  annotation_custom(g3, xmin = -Inf, xmax = Inf, ymin = -0, ymax = 1080)+
+  stat_density2d(geom="raster", aes(fill=..density.., alpha=sqrt(sqrt(..density..))), contour = FALSE, n=1000)+
+  scale_alpha(range=c(0.1, 0.6))+
+  scale_fill_gradientn(colours = jet.colors(10), trans="sqrt")
+
+#Participant 5_1_m2 - Counting task
+img4 = readJPEG("/Users/lineelgaard/Dropbox/2018 - Eye tracking/EyeTrackingScripts/foraging/ng038ws.jpg")
+g4 = rasterGrob(img4, interpolate=TRUE)
+
+plot4 = ggplot(subset(FixationsV2, Task=="VisualSearch" & ParticipantID=="5_1_m2" & SearchType=="Count", Trial==2), aes(x=PositionX, y=PositionY))+
+  xlim(0,1920)+
+  ylim(0,1080)+
+  annotation_custom(g4, xmin = -Inf, xmax = Inf, ymin = -0, ymax = 1080)+
+  stat_density2d(geom="raster", aes(fill=..density.., alpha=sqrt(sqrt(..density..))), contour = FALSE, n=1000)+
+  scale_alpha(range=c(0.1, 0.6))+
+  scale_fill_gradientn(colours = jet.colors(10), trans="sqrt")
+
+#Plot the four plots next to each other 
+#Look at difference between the two participants 
+#And difference between search task (for star) and counting task
+attach(mtcars)
+par(mfrow=c(2,2))
+plot1
+plot2
+plot3
+plot4
+
+
+
+
+
+#SCANPATHS 
+########Participant 1_1_f1 - Search task (finding the star)
+img5 = readJPEG("/Users/lineelgaard/Dropbox/2018 - Eye tracking/EyeTrackingScripts/foraging/ng021ws.jpg")
+g5 = rasterGrob(img5, interpolate=TRUE)
+
+#Order the data after fixation number (start with 1, then 2 etc.)
+x=subset(FixationsV2, Task == 'VisualSearch' & ParticipantID=='1_1_f1' & Trial==1)
+x=x[order(x$Fixation),]
+
+ggplot(x, aes(x=PositionX, y=1081-PositionY, label=Fixation)) +
+  annotation_custom(g5, xmin = -Inf, xmax = Inf, ymin = -0, ymax = 1080)+
+  geom_point(size = x$Duration/50, alpha = 0.5, color="magenta") + #The size = depend on the duration of the fixation (divided by 50 otherwise it would be to big)
+  geom_path(size = 1, alpha = 0.3) +
+  geom_text(aes(label = Fixation, size = 5))
+
+########Participant 2_2_f2 - Counting task - same imgage as above
+img6 = readJPEG("/Users/lineelgaard/Dropbox/2018 - Eye tracking/EyeTrackingScripts/foraging/ng021ws.jpg")
+g6 = rasterGrob(img6, interpolate=TRUE)
+
+#Order the data after fixation number (start with 1, then 2 etc.)
+x=subset(FixationsV2, Task == 'VisualSearch' & ParticipantID=='2_2_f2' & Trial==1)
+x=x[order(x$Fixation),]
+
+ggplot(x, aes(x=PositionX, y=1081-PositionY, label=Fixation)) +
+  annotation_custom(g6, xmin = -Inf, xmax = Inf, ymin = -0, ymax = 1080)+
+  geom_point(size = x$Duration/50, alpha = 0.5, color="magenta") + #The size = depend on the duration of the fixation (divided by 50 otherwise it would be to big)
+  geom_path(size = 1, alpha = 0.3) +
+  geom_text(aes(label = Fixation, size = 5))
+
+
+
+
+
+#GROWTH CURVE - Social Engagement (pupil size)
+#Pupil size over time, divided by conditions (Directionality and Ostension)
+ggplot(subset(SamplesV2, Task=="SocialEngagement"), aes(TrialTime, PupilSize, color=Ostension), na.rm=T)+
+  geom_smooth()+
+  facet_grid(~Directionality)
+
+#Pupil size over time, divided by actor gender and participant gender 
+ggplot(subset(SamplesV2, Task=="SocialEngagement"), aes(TrialTime, PupilSize, color=ActorGender), na.rm=T)+
+  geom_smooth()+
+  facet_grid(~ParticipantGender)
+
+```
+
